@@ -6,7 +6,7 @@ export interface ParsedUrl {
     protocol: string;
     hostname: string;
     port: string;
-    patchname: string;
+    pathname: string;
     search: string;
     hash: string;
 }
@@ -86,7 +86,7 @@ export interface NetworkResponse extends NetworkRequest {
 
 //——————————————————— Crawler ——————————————————————
 
-export interface CrawlContent {
+export interface CrawlContext {
     baseUrl: string;
     outputDir: string;
     config: CrawlConfig;
