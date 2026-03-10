@@ -1,15 +1,16 @@
-import ora, { type Ora } from "ora";
-import type { CrawlResult, CrawlStats } from "../types";
+import type { CrawlResult, CrawlStats } from "../types/index.js";
 
 /**
  * Progress Reporter
+ * NOTE: ora (spinner) causes issues with Playwright browser navigation
+ * Using simple console output instead
  */
 
 export class ProgressReporter {
-    private spinner: Ora | null;
     private quiet: boolean;
     private verbose: boolean;
     private startTime: number = 0;
+    private currentStatus: string = "";
 
     /**
      * Statistics Tracking
@@ -35,7 +36,6 @@ export class ProgressReporter {
     constructor(quiet: boolean, verbose: boolean) {
         this.quiet = quiet;
         this.verbose = verbose;
-        this.spinner = quiet ? null : ora();
     }
 
     /**
@@ -43,21 +43,22 @@ export class ProgressReporter {
      */
     start(message: string): void {
         this.startTime = Date.now();
-        this.spinner?.start(message);
         this.log(`[START] ${message}`);
     }
 
     complete(result: CrawlResult): void {
-        const duration = ((Date.now() - this.startTime) /1000).toFixed(2);
-        this.spinner?.succeed(`Completed in ${duration}`);
-        if(!this.quiet){
+        const duration = ((Date.now() - this.startTime) / 1000).toFixed(2);
+        this.log(`[COMPLETE] Completed in ${duration}s`);
+        if (!this.quiet) {
             this.printSummary(result);
         }
     }
-    
-    error(error: Error){
-        this.spinner?.fail(error.message);
-        console.error(error)
+
+    error(error: Error) {
+        console.error(`[ERROR] ${error.message}`);
+        if (!this.quiet) {
+            console.error(error);
+        }
     }
 
     /**
@@ -68,21 +69,21 @@ export class ProgressReporter {
 
     pageQueued(url: string, total: number): void {
         this.stats.pagesQueued++;
-        this.updateSpinner(`Queueing pages: ${this.stats.pagesQueued}`);
+        this.updateStatus(`Queueing: ${this.stats.pagesQueued} pages`);
         this.verboseLog(`[QUEUE] ${url}`);
     }
-    
+
     pageVisitStart(url: string): void {
         this.stats.pagesVisited++;
-        this.updateSpinner(`Crawling: ${this.stats.pagesVisited}/${this.stats.pagesQueued} pages`);
+        // Don't update status during navigation - can interfere with browser
         this.verboseLog(`[VISIT] ${url}`);
     }
-    
+
     pageVisitSuccess(url: string, assetsFound: number): void {
         this.stats.pagesSucceeded++;
         this.verboseLog(`[OK] ${url} (${assetsFound} assets)`);
     }
-    
+
     pageVisitFailed(url: string, error: string): void {
         this.stats.pagesFailed++;
         this.verboseLog(`[FAIL] ${url} - ${error}`, true);
@@ -95,9 +96,9 @@ export class ProgressReporter {
         this.stats.assetsQueued++;
     }
 
-    assetDownloadStart(url: string): void{
-        if(this.verbose){
-            this.updateSpinner(`Downloading: ${this.stats.assetsDownloaded}/${this.stats.assetsQueued} assets`);
+    assetDownloadStart(url: string): void {
+        if (this.verbose) {
+            this.updateStatus(`Downloading: ${this.stats.assetsDownloaded}/${this.stats.assetsQueued} assets`);
         }
     }
 
@@ -105,12 +106,12 @@ export class ProgressReporter {
         this.stats.assetsDownloaded++;
         this.verboseLog(`[ASSET] ${url} (${formatBytes(size)})`);
     }
-    
+
     assetDownloadFailed(url: string, error: string): void {
         this.stats.assetsFailed++;
         this.verboseLog(`[ASSET FAIL] ${url} - ${error}`, true);
     }
-    
+
     assetSkipped(url: string, reason: "duplicate" | "type" | "size"): void {
         this.verboseLog(`[SKIP] ${url} (${reason})`);
     }
@@ -121,22 +122,22 @@ export class ProgressReporter {
     networkRequest(url: string, method: string): void {
         this.verboseLog(`[REQ] ${method} ${url}`);
     }
-    
+
     networkResponse(url: string, status: number, size: number): void {
         this.verboseLog(`[RES] ${status} ${url} (${formatBytes(size)})`);
     }
 
     /**
-     * Broswer Events
+     * Browser Events
      */
     browserLaunch(): void {
         this.verboseLog("[BROWSER] Launching...");
     }
-    
+
     browserClose(): void {
         this.verboseLog("[BROWSER] Closed");
     }
-    
+
     spaNavigation(url: string): void {
         this.verboseLog(`[SPA] Navigated to ${url}`);
     }
@@ -144,11 +145,14 @@ export class ProgressReporter {
     /**
      * Helper Methods
      */
-    private updateSpinner(text: string): void {
-        if (this.spinner && !this.spinner.isSpinning) {
-          this.spinner.start();
+    private updateStatus(text: string): void {
+        if (this.quiet) return;
+        // Clear previous line and write new status
+        if (this.currentStatus) {
+            process.stdout.write("\r" + " ".repeat(this.currentStatus.length) + "\r");
         }
-        this.spinner!.text = text;
+        process.stdout.write(`\r${text}`);
+        this.currentStatus = text;
     }
     
     private verboseLog(message: string, isError = false): void {

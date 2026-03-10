@@ -1,6 +1,7 @@
-import type { Page, Asset, DownloadedAsset, CapturedPage, FileManifest, StorageStats } from "../types/index.js";
+import type { Page, Asset, DownloadedAsset, CapturedPage, FileManifest, StorageStats, RewriteContext } from "../types/index.js";
 import type { HtmlRewriter } from "../rewriter/html.js";
 import { createHash, createFilename } from "./deduplication.js";
+import { CssRewriter } from "../rewriter/css.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -14,6 +15,7 @@ import { join } from "node:path";
  * - Directory structure creation
  * - Asset deduplication via hash
  * - URL-to-path mapping
+ * - CSS URL rewriting
  * - Manifest Generation
  */
 
@@ -23,18 +25,23 @@ export class StorageManager {
     private assetMap: Map<string, string> = new Map();
     private pageMap: Map<string, string> = new Map();
     private hashSet: Set<string> = new Set();
+    private rewriteContext: RewriteContext;
+    private cssRewriter: CssRewriter;
     private stats: StorageStats = {
         filesCreated: 0,
         totalSize: 0,
         duplicatesSkipped: 0,
     };
-    private pages: CapturedPage[] = [];
-    private assets: DownloadedAsset[] = [];
 
-    constructor(outputDir: string){
+    constructor(outputDir: string, rewriteContext: RewriteContext) {
         this.outputDir = outputDir;
         this.assetsDir = join(outputDir, "assets");
+        this.rewriteContext = rewriteContext;
+        this.cssRewriter = new CssRewriter(rewriteContext);
     }
+
+    private pages: CapturedPage[] = [];
+    private assets: DownloadedAsset[] = [];
 
     // Intialization
     async init(): Promise<void> {
@@ -55,7 +62,7 @@ export class StorageManager {
      * Store a page with rewritten URLs
      */
     async storePage(page: Page, rewriter: HtmlRewriter): Promise<void> {
-        const localPath = this.getPagePath(page.url.original);
+        const localPath = await this.getPagePath(page.url.original);
         rewriter.updateContext({
             baseUrl: page.url.original,
             outputDir: this.outputDir,
@@ -77,7 +84,12 @@ export class StorageManager {
         this.pageMap.set(page.url.original, localPath);
 
         this.pages.push({
-            ...page,
+            url: page.url,
+            html: page.html,
+            links: page.links,
+            spaRoutes: page.spaRoutes,
+            title: page.title,
+            timestamp: page.timestamp,
             localPath,
             assets: [],
         });
@@ -86,7 +98,7 @@ export class StorageManager {
     /**
      * Get local path for a page URL
      */
-    private getPagePath(url: string): string {
+    private async getPagePath(url: string): Promise<string> {
         try {
             const parsed = new URL(url);
             const pathname = parsed.pathname;
@@ -99,8 +111,10 @@ export class StorageManager {
             }
             return `${pathname.slice(1)}/index.html`;
         } catch {
-            // Invalid URL, use hash-based filename
-            return `pages/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.html`;
+            // Invalid URL, use hash-based filename (async import)
+            const { createUrlHash } = await import("./deduplication.js");
+            const hash = await createUrlHash(url);
+            return `pages/${hash}.html`;
         }
     }
 
@@ -129,9 +143,12 @@ export class StorageManager {
         const localPath = this.getAssetPath(asset.url, asset.type, hash);
 
         if(asset.content){
-            const buffer = Buffer.isBuffer(asset.content)
+            let buffer = Buffer.isBuffer(asset.content)
                 ? asset.content
                 : Buffer.from(asset.content);
+
+            // Don't rewrite CSS during download - will be rewritten after all assets are downloaded
+            // This ensures all referenced assets (fonts, etc.) are in the assetMap
 
             const filePath = join(this.outputDir, localPath);
             await writeFile(filePath, buffer);
@@ -165,7 +182,8 @@ export class StorageManager {
         // Use hash filename
         const filename = ext ? `${hash}.${ext}` : hash;
 
-        return join("assets", subdir, filename);
+        // Use forward slashes for web compatibility (not system path separators)
+        return `assets/${subdir}/${filename}`;
     }
 
     private getTypeSubdir(type: string): string {
@@ -183,9 +201,28 @@ export class StorageManager {
     }
 
     private getExtension(url: string): string {
-        const cleanUrl = url.split(/[?#]/)[0];
-        const ext = cleanUrl!.split(".").pop()?.toLowerCase();
-        return ext ?? "";
+        // Parse URL properly to get the pathname
+        try {
+            const urlObj = new URL(url);
+            const pathname = urlObj.pathname;
+            // Get the last segment of the path
+            const filename = pathname.split("/").pop() ?? "";
+            // Extract extension from filename (if any)
+            const parts = filename.split(".");
+            if (parts.length > 1) {
+                return parts.pop()?.toLowerCase() ?? "";
+            }
+            return "";
+        } catch {
+            // Fallback for invalid URLs
+            const cleanUrl = url.split(/[?#]/)[0] ?? "";
+            const filename = cleanUrl.split("/").pop() ?? "";
+            const parts = filename.split(".");
+            if (parts.length > 1) {
+                return parts.pop()?.toLowerCase() ?? "";
+            }
+            return "";
+        }
     }
 
     // Queries
@@ -202,6 +239,29 @@ export class StorageManager {
      */
     async getAssetCount(): Promise<number> {
         return this.assets.length;
+    }
+
+    /**
+     * Rewrite CSS files with current assetMap (call after all assets downloaded)
+     * This fixes font URLs and other asset references in CSS
+     */
+    async rewriteCssFiles(): Promise<void> {
+        const cssAssets = this.assets.filter(a => a.type === 'css');
+        const { readFile, writeFile } = await import('node:fs/promises');
+
+        for (const cssAsset of cssAssets) {
+            const filePath = join(this.outputDir, cssAsset.localPath);
+            try {
+                const content = await readFile(filePath, 'utf-8');
+                // Update CSS rewriter with current assetMap
+                this.cssRewriter.updateContext({ assetMap: this.assetMap });
+                const rewritten = this.cssRewriter.rewrite(content);
+                await writeFile(filePath, rewritten, 'utf-8');
+            } catch (error) {
+                // File might not exist or other error, skip
+                console.warn(`Failed to rewrite CSS file ${cssAsset.localPath}:`, (error as Error).message);
+            }
+        }
     }
 
     /**

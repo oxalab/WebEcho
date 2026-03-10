@@ -33,6 +33,7 @@ export class HtmlRewriter {
         this.rewriteLinks($);
         this.rewriteImages($);
         this.rewriteScripts($);
+        this.rewriteInlineScripts($);
         this.rewriteStylesheets($);
         this.rewriteIframes($);
         this.rewriteMetaTags($);
@@ -91,6 +92,36 @@ export class HtmlRewriter {
         });
     }
 
+    /**
+     * Rewrite inline script content (dynamic imports, etc.)
+     */
+    private rewriteInlineScripts($: cheerio.CheerioAPI): void {
+        $("script").each((_, el) => {
+            const $el = $(el);
+            // Skip scripts with src attribute (already handled)
+            if ($el.attr("src")) return;
+
+            const content = $el.html();
+            if (!content) return;
+
+            // Rewrite dynamic imports: import("/path/to/file.js")
+            const rewritten = content.replace(
+                /import\("([^"]+)"\)/g,
+                (_, url) => `import("${this.rewriteAssetUrl(url)}")`
+            );
+
+            // Rewrite dynamic imports with single quotes: import('/path/to/file.js')
+            const finalRewrite = rewritten.replace(
+                /import\('([^']+)'\)/g,
+                (_, url) => `import('${this.rewriteAssetUrl(url)}')`
+            );
+
+            if (content !== finalRewrite) {
+                $el.html(finalRewrite);
+            }
+        });
+    }
+
     private rewriteStylesheets($: cheerio.CheerioAPI): void {
         $("link[rel='stylesheet']").each((_, el) => {
           const $el = $(el);
@@ -102,8 +133,8 @@ export class HtmlRewriter {
           }
         });
 
-        // Also handle preload, prefetch links
-        $("link[rel='preload'], link[rel='prefetch']").each((_, el) => {
+        // Also handle preload, modulepreload, prefetch links
+        $("link[rel='preload'], link[rel='modulepreload'], link[rel='prefetch']").each((_, el) => {
             const $el = $(el);
             const href = $el.attr("href");
 
@@ -252,8 +283,11 @@ export class HtmlRewriter {
           return url;
         }
 
+        // Normalize URL to full URL for lookup
+        const normalizedUrl = this.normalizeUrl(url);
+
         // Check asset map
-        const mappedPath = this.context.assetMap.get(url);
+        const mappedPath = this.context.assetMap.get(normalizedUrl);
         if (mappedPath) {
           return this.makeRelative(mappedPath);
         }
@@ -271,7 +305,7 @@ export class HtmlRewriter {
           .split(",")
           .map((part) => {
             const [url, descriptor] = part.trim().split(/\s+/);
-            const rewritten = this.rewriteAssetUrl(url!);
+            const rewritten = this.rewriteAssetUrl(url || "");
             return descriptor ? `${rewritten} ${descriptor}` : rewritten;
           })
           .join(", ");
@@ -286,7 +320,7 @@ export class HtmlRewriter {
 
         if (match) {
           const [, delay, url] = match;
-          const rewritten = this.rewriteUrl(url!);
+          const rewritten = this.rewriteUrl(url || "");
           return `${delay}; url=${rewritten}`;
         }
 

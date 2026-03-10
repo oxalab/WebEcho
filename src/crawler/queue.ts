@@ -1,4 +1,4 @@
-import type { PageUrl, QueueItem } from "../types";
+import type { PageUrl, QueueItem } from "../types/index.js";
 
 // =============== URL Queue =================
 
@@ -149,8 +149,8 @@ export class UrlQueue {
 
     private normalize(url: string): string {
         let normalized = url.split(/[?#]/)[0];
-        normalized = normalized?.replace(/\/$/, "");
-        return normalized!.toLowerCase();
+        normalized = normalized?.replace(/\/$/, "") || "";
+        return normalized.toLowerCase();
     }
 
     private sort(): void {

@@ -46,21 +46,22 @@ export class BrowserEngine {
    */
   async launch(): Promise<void> {
     this.browser = await chromium.launch({
-      headless: this.config.headless,
+      channel: "chrome",
+      headless: false,
+      args: [
+        "--disable-blink-features=AutomationControlled",
+      ],
     });
 
     this.context = await this.browser.newContext({
-      userAgent: this.config.userAgent,
-      viewport: this.config.viewport ?? { width: 1920, height: 1080 },
+      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      ignoreHTTPSErrors: true,
     });
 
     this.page = await this.context.newPage();
 
-    // Setup network interception
+    // Setup network interception to capture assets
     await this.setupNetworkInterception();
-
-    // Setup SPA navigation tracking
-    await this.setupSpaTracking();
   }
 
   /**
@@ -85,19 +86,25 @@ export class BrowserEngine {
     const startTime = Date.now();
 
     try {
-      // Clear previous SPA navigations
+      // Clear previous SPA navigations and assets
       this.navigationHandler.clear();
+      this.interceptor.reset();
 
-      // Navigate to URL
+      // Navigate to URL - wait for network idle to ensure all assets (fonts, etc.) are loaded
       const response = await this.page.goto(url, {
         waitUntil: "networkidle",
-        timeout: this.config.timeout,
+        timeout: 30000,
       });
+
+      // Wait a bit to let page stabilize
+      await this.page.waitForTimeout(1000);
 
       // Wait for optional selector
       if (this.config.waitForSelector) {
         await this.page.waitForSelector(this.config.waitForSelector, {
           timeout: this.config.timeout,
+        }).catch(() => {
+          // Continue anyway - selector might be optional
         });
       }
 
@@ -191,16 +198,8 @@ export class BrowserEngine {
    * Get all SPA navigation URLs discovered
    */
   async getSpaNavigations(): Promise<string[]> {
-    if (!this.page) return [];
-
-    try {
-      const navigations = await this.page.evaluate("window.__spaNavigations || []") as string[];
-      // Also get from handler
-      const handlerNavs = this.navigationHandler.getNavigations();
-       return [...new Set([...navigations, ...handlerNavs])];
-    } catch {
-      return this.navigationHandler.getNavigations();
-    }
+    // SPA tracking disabled - return empty array to avoid page evaluate issues
+    return [];
   }
 
   // ==================== Link Extraction ====================
@@ -211,21 +210,22 @@ export class BrowserEngine {
   async extractLinks(baseUrl: string): Promise<string[]> {
     if (!this.page) return [];
 
-    // Use $$eval with explicit any to avoid DOM type requirements
-    const links = await this.page.$$eval(
-      "a[href]",
-      (anchors: any, base: string) => {
-        return anchors
-          .map((a: any) => a.href)
-          .filter((href: string) => href.startsWith(base) || href.startsWith("/"));
-      },
-      baseUrl
-    );
+    try {
+      const links = await this.page.$$eval(
+        "a[href]",
+        (anchors: any, base: string) => {
+          return anchors
+            .map((a: any) => a.href)
+            .filter((href: string) => href.startsWith(base) || href.startsWith("/"));
+        },
+        baseUrl
+      );
 
-    // Also get SPA routes
-    const spaRoutes = await this.getSpaNavigations();
-
-    return [...new Set([...links, ...spaRoutes])];
+      const spaRoutes = await this.getSpaNavigations();
+      return [...new Set([...links, ...spaRoutes])];
+    } catch {
+      return [];
+    }
   }
 
   // ==================== Authentication ====================
@@ -317,6 +317,12 @@ export class BrowserEngine {
       const headers = response.headers();
       const now = Date.now();
 
+      // Debug: Log all responses for _next/static
+      if (url.includes("/_next/static/") || url.includes("/_next/")) {
+        console.log(`[BrowserEngine] Response: ${url}`);
+        console.log(`[BrowserEngine] status: ${statusCode}, contentType: ${headers["content-type"]}`);
+      }
+
       // Determine asset type
       const contentType = headers["content-type"] ?? "";
       const assetType = this.determineAssetType(contentType, url);
@@ -330,6 +336,11 @@ export class BrowserEngine {
         } catch {
           // Body not available or too large
         }
+      }
+
+      // Debug: Log if body was captured for _next assets
+      if ((url.includes("/_next/") || url.includes("/static/")) && this.shouldCaptureBody(assetType, statusCode)) {
+        console.log(`[BrowserEngine] Body captured: ${body ? body.length : 0} bytes for ${assetType}`);
       }
 
       const networkResponse: NetworkResponse = {
@@ -367,13 +378,21 @@ export class BrowserEngine {
     if (contentType.includes("font")) return "font";
     if (contentType.includes("video/") || contentType.includes("audio/")) return "media";
 
-    // Fallback to URL extension
-    const ext = url.split(".").pop()?.toLowerCase();
+    // Fallback to URL extension (strip query strings and fragments first)
+    const urlWithoutQuery = url.split(/[?#]/)[0];
+    const ext = urlWithoutQuery?.split(".").pop()?.toLowerCase();
     if (ext === "css") return "css";
     if (ext === "js") return "js";
     if (["png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "bmp"].includes(ext ?? "")) return "image";
     if (["woff", "woff2", "ttf", "otf", "eot"].includes(ext ?? "")) return "font";
     if (["mp4", "webm", "ogg", "mp3", "wav"].includes(ext ?? "")) return "media";
+
+    // Debug: Log unknown types
+    if (url.includes("/_next/") || url.includes("/static/")) {
+      console.log(`[BrowserEngine] Unknown asset type: ${url}`);
+      console.log(`[BrowserEngine] contentType: ${contentType}`);
+      console.log(`[BrowserEngine] ext: ${ext}`);
+    }
 
     return "unknown";
   }

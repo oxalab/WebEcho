@@ -1,4 +1,4 @@
-import type { Asset } from "../types";
+import type { Asset } from "../types/index.js";
 
 // Hash Functions
 
@@ -32,9 +32,8 @@ export async function createFullHash(content: Buffer | string): Promise<string> 
  * Create a hash from a URL
  * Useful for creating unique identifiers for URLs
  */
-
 export async function createUrlHash(url: string): Promise<string> {
-    const buffer = Buffer.isBuffer(url) ? url : Buffer.from(url);
+    const buffer = Buffer.from(url);
     const hashBuffer = await crypto.subtle.digest("SHA-256", new Uint8Array(buffer));
     const hashArray = new Uint8Array(hashBuffer);
     const hashHex = Array.from(hashArray)
@@ -64,8 +63,7 @@ export function createFilename(url: string, hash: string): string {
  * Create a page filename from URL
  * Preserves path structure but replaces special chars
  */
-
-export function createPagePath(url: string): string {
+export async function createPagePath(url: string): Promise<string> {
     try {
         const parsed = new URL(url);
         let path = parsed.pathname;
@@ -81,10 +79,10 @@ export function createPagePath(url: string): string {
         }
         return `${path}index.html`
     } catch (error) {
-        return `pages/${createUrlHash(url)}.html`;
+        const hash = await createUrlHash(url);
+        return `pages/${hash}.html`;
     }
 }
-
 
 // URL Utilities
 
@@ -92,10 +90,11 @@ export function createPagePath(url: string): string {
  * Extract file extension from URL
  */
 export function getExtension(url: string): string {
-    const cleanUrl = url.split(/[?$]/)[0];
+    const cleanUrl = url.split(/[?#]/)[0];
     const parts = cleanUrl?.split(".");
-    const ext = parts![parts!.length - 1]?.toLowerCase();
-    if (!ext || !/^[a-z]{1,6}$/.test(ext)) {
+    if (!parts || parts.length < 2) return "";
+    const ext = parts[parts.length - 1]?.toLowerCase() ?? "";
+    if (!/^[a-z]{1,6}$/.test(ext)) {
         return "";
     }
     return ext;
@@ -114,7 +113,7 @@ export function getAssetType(url: string, mimeType?: string): string {
     }
     // Try extension
     const ext = getExtension(url);
-    
+
     const typeMap: Record<string, string> = {
         css: "css",
         js: "css",
@@ -133,7 +132,7 @@ export function getAssetType(url: string, mimeType?: string): string {
         eot: "font",
         json: "api",
     };
-    
+
     return typeMap[ext] ?? "other";
 }
 
@@ -186,7 +185,10 @@ export class DeduplicationCache {
         if(!this.contentHashes.has(hash)){
             this.contentHashes.set(hash, new Set());
         }
-        this.contentHashes.get(hash)!.add(url);
+        const hashSet = this.contentHashes.get(hash);
+        if (hashSet) {
+            hashSet.add(url);
+        }
         this.size++;
         if(isNewHash){
             this.totalBytes += size;

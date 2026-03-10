@@ -1,4 +1,4 @@
-import type { SpaNavigationEvent } from "../types";
+import type { SpaNavigationEvent } from "../types/index.js";
 
 // ============== SPA Navigation Handler ==================
 

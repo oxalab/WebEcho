@@ -164,7 +164,7 @@ export class CssRewriter {
     const last = parts[parts.length - 1];
 
     // Remove query string and hash
-    return last.split(/[?#]/)[0] || "file";
+    return (last?.split(/[?#]/)[0]) || "file";
   }
 
   /**
@@ -226,7 +226,7 @@ export function extractCssUrls(css: string): string[] {
 
   while ((match = urlPattern.exec(css)) !== null) {
     const url = match[1];
-    if (!url.startsWith("data:") && !url.startsWith("about:")) {
+    if (url && !url.startsWith("data:") && !url.startsWith("about:")) {
       urls.push(url);
     }
   }

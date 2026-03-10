@@ -27,6 +27,14 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .cache
 *.tsbuildinfo
 
+# Playwright browser data
+.webecho-browser-data
+playwright-*
+
+# Clone output
+clone
+ampcode-clone
+
 # IntelliJ based IDEs
 .idea
 
@@ -34,3 +42,4 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .DS_Store
 
 .cursor
+.claude

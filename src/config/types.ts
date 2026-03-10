@@ -1,5 +1,5 @@
 import normalizeUrlLib from "normalize-url";
-import type { AuthConfig, BrowserConfig, AssetType } from "../types";
+import type { AuthConfig, BrowserConfig, AssetType } from "../types/index.js";
 
 export interface CliOptions {
     url: string;
@@ -169,7 +169,7 @@ export class CrawlConfigBuilder {
             maxPages: options.maxPages ?? DEFAULT_CRAWL_CONFIG.maxPages!,
             maxAssets: options.maxAssets ?? DEFAULT_CRAWL_CONFIG.maxAssets!,
             concurrency: options.concurrency ?? DEFAULT_CRAWL_CONFIG.concurrency!,
-            captureAssets: options.noAssets ?? DEFAULT_CRAWL_CONFIG.captureAssets!,
+            captureAssets: options.noAssets === undefined ? DEFAULT_CRAWL_CONFIG.captureAssets! : !options.noAssets,
             assetTypes: new Set(options.assetTypes ?? Array.from(DEFAULT_CRAWL_CONFIG.assetTypes!)),
 
             // Browser config
@@ -188,7 +188,7 @@ export class CrawlConfigBuilder {
             // Filters
             include: buildRegexPatterns(options.include ?? []),
             exclude: buildRegexPatterns(options.exclude ?? []),
-            respectRobots: options.skipRobots ?? DEFAULT_CRAWL_CONFIG.respectRobots!,
+            respectRobots: options.skipRobots === undefined ? DEFAULT_CRAWL_CONFIG.respectRobots! : !options.skipRobots,
 
             // Remaining defaults
             sameDomainOnly: DEFAULT_CRAWL_CONFIG.sameDomainOnly!,

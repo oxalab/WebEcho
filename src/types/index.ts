@@ -1,4 +1,4 @@
-import type { CrawlConfig } from "../config/types";
+import type { CrawlConfig } from "../config/types.js";
 
 export interface ParsedUrl {
     original: string;
