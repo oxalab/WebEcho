@@ -2,6 +2,7 @@ import type { Page, Asset, DownloadedAsset, CapturedPage, FileManifest, StorageS
 import type { HtmlRewriter } from "../rewriter/html.js";
 import { createHash, createFilename } from "./deduplication.js";
 import { CssRewriter } from "../rewriter/css.js";
+import { JsRewriter } from "../rewriter/js.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -16,6 +17,7 @@ import { join } from "node:path";
  * - Asset deduplication via hash
  * - URL-to-path mapping
  * - CSS URL rewriting
+ * - JS URL rewriting (for Next.js, SPA bundles)
  * - Manifest Generation
  */
 
@@ -27,6 +29,7 @@ export class StorageManager {
     private hashSet: Set<string> = new Set();
     private rewriteContext: RewriteContext;
     private cssRewriter: CssRewriter;
+    private jsRewriter: JsRewriter;
     private stats: StorageStats = {
         filesCreated: 0,
         totalSize: 0,
@@ -38,6 +41,7 @@ export class StorageManager {
         this.assetsDir = join(outputDir, "assets");
         this.rewriteContext = rewriteContext;
         this.cssRewriter = new CssRewriter(rewriteContext);
+        this.jsRewriter = new JsRewriter(rewriteContext);
     }
 
     private pages: CapturedPage[] = [];
@@ -260,6 +264,39 @@ export class StorageManager {
             } catch (error) {
                 // File might not exist or other error, skip
                 console.warn(`Failed to rewrite CSS file ${cssAsset.localPath}:`, (error as Error).message);
+            }
+        }
+    }
+
+    /**
+     * Rewrite JS files with current assetMap (call after all assets downloaded)
+     * This fixes:
+     * - Next.js /_next/static/ and /_next/data/ paths
+     * - Relative imports in bundled code
+     * - Dynamic import() paths
+     * - fetch() URLs for same-origin requests
+     */
+    async rewriteJsFiles(): Promise<void> {
+        const jsAssets = this.assets.filter(a => a.type === 'js');
+        const { readFile, writeFile } = await import('node:fs/promises');
+
+        for (const jsAsset of jsAssets) {
+            const filePath = join(this.outputDir, jsAsset.localPath);
+            try {
+                const content = await readFile(filePath, 'utf-8');
+                // Update JS rewriter with current assetMap
+                this.jsRewriter.updateContext({
+                    assetMap: this.assetMap,
+                    baseUrl: this.rewriteContext.baseUrl,
+                    outputDir: this.outputDir,
+                    pageMap: this.pageMap,
+                });
+                // Pass the original URL to help resolve relative paths
+                const rewritten = this.jsRewriter.rewrite(content, jsAsset.url);
+                await writeFile(filePath, rewritten, 'utf-8');
+            } catch (error) {
+                // File might not exist or other error, skip
+                console.warn(`Failed to rewrite JS file ${jsAsset.localPath}:`, (error as Error).message);
             }
         }
     }

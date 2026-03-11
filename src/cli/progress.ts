@@ -117,6 +117,17 @@ export class ProgressReporter {
     }
 
     /**
+     * Rewrite Events
+     */
+    assetRewriteStart(): void {
+        this.log("[REWRITE] Rewriting asset URLs in CSS and JS files...");
+    }
+
+    assetRewriteComplete(): void {
+        this.verboseLog("[REWRITE] Complete");
+    }
+
+    /**
      * Network Events
      */
     networkRequest(url: string, method: string): void {
@@ -172,25 +183,51 @@ export class ProgressReporter {
         console.log("\n" + "=".repeat(50));
         console.log("CRAWL SUMMARY");
         console.log("=".repeat(50));
-    
+
         console.log("\nPages:");
         console.log(`  Total:      ${result.stats.pagesTotal}`);
         console.log(`  Successful: ${result.stats.pagesSuccessful}`);
         console.log(`  Failed:     ${result.stats.pagesFailed}`);
-    
+
         console.log("\nAssets:");
         console.log(`  Total:      ${result.stats.assetsTotal}`);
         console.log(`  Successful: ${result.stats.assetsSuccessful}`);
         console.log(`  Failed:     ${result.stats.assetsFailed}`);
-    
+
         console.log("\nData:");
         console.log(`  Downloaded: ${formatBytes(result.stats.bytesDownloaded)}`);
         console.log(`  Duration:   ${result.duration.toFixed(2)}s`);
-    
-        console.log("\nOutput:");
-        console.log(`  Directory: ${result.pages[0]?.localPath.split("/").slice(0, -1).join("/") || "N/A"}`);
-    
+
+        // Get the main HTML file path (index.html or first page)
+        const mainPage = result.pages.find(p => p.localPath.endsWith('index.html')) || result.pages[0];
+        if (mainPage) {
+            const absolutePath = this.getAbsolutePath(mainPage.localPath);
+            console.log("\n" + "▶".repeat(25));
+            console.log(`  OPEN: ${absolutePath}`);
+            console.log("▶".repeat(25));
+        }
+
         console.log("\n" + "=".repeat(50) + "\n");
+    }
+
+    /**
+     * Convert relative path to absolute file:// URL for clicking
+     */
+    private getAbsolutePath(relativePath: string): string {
+        // On Windows, convert to absolute path with file:// protocol for clicking
+        if (process.platform === 'win32') {
+            const absolute = relativePath.startsWith('/')
+                ? relativePath
+                : `/${relativePath}`;
+            // Replace / with \ for Windows paths, but keep file:/// prefix
+            return `file:///${absolute.replace(/\//g, '\\')}`;
+        }
+        // Unix-like systems
+        const cwd = process.cwd();
+        const absolute = relativePath.startsWith('/')
+            ? relativePath
+            : `${cwd}/${relativePath}`;
+        return `file://${absolute}`;
     }
 
     /**

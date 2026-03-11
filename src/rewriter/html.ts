@@ -30,6 +30,7 @@ export class HtmlRewriter {
     rewrite(html: string): string {
         const $ = cheerio.load(html);
 
+        this.injectWebpackOverride($);
         this.rewriteLinks($);
         this.rewriteImages($);
         this.rewriteScripts($);
@@ -243,6 +244,32 @@ export class HtmlRewriter {
         });
     }
 
+    private injectWebpackOverride($: cheerio.CheerioAPI): void {
+        // Inject script to override webpack's public path for Next.js chunks
+        // This fixes webpack chunk loading from /_next/static/chunks/ to assets/js/
+        const webpackScript = `
+<script>
+(function() {
+  // Override webpack public path for Next.js chunk loading
+  if (typeof __webpack_require__ !== 'undefined' && __webpack_require__.p) {
+    __webpack_require__.p = './assets/js/';
+  }
+  // Handle Next.js specific chunk loading
+  if (typeof window !== 'undefined') {
+    const originalFetch = window.fetch;
+    window.fetch = function(url, ...args) {
+      if (typeof url === 'string' && url.includes('/_next/static/chunks/')) {
+        url = url.replace(/\/_next\/static\/chunks\//, './assets/js/');
+        url = url.replace(/\/_next\/static\/media\//, './assets/fonts/');
+      }
+      return originalFetch.call(this, url, ...args);
+    };
+  }
+})();
+</script>`;
+        $("head").append(webpackScript);
+    }
+
     private injectBaseTag($: cheerio.CheerioAPI): void {
         // Only inject if no base tag exists
         if ($("base").length === 0) {
@@ -286,14 +313,38 @@ export class HtmlRewriter {
         // Normalize URL to full URL for lookup
         const normalizedUrl = this.normalizeUrl(url);
 
-        // Check asset map
-        const mappedPath = this.context.assetMap.get(normalizedUrl);
+        // Try direct lookup first
+        let mappedPath = this.context.assetMap.get(normalizedUrl);
+
+        // If not found, try with/without www prefix (common redirect issue)
+        if (!mappedPath) {
+          mappedPath = this.context.assetMap.get(this.withAlternateWww(normalizedUrl));
+        }
+
         if (mappedPath) {
           return this.makeRelative(mappedPath);
         }
 
         // Not found - keep original or make relative
         return url;
+    }
+
+    /**
+     * Get alternate URL with www prefix added/removed for lookup
+     * Handles www vs non-www redirect mismatches
+     */
+    private withAlternateWww(url: string): string {
+      try {
+        const u = new URL(url);
+        if (u.hostname.startsWith('www.')) {
+          u.hostname = u.hostname.slice(4);
+        } else {
+          u.hostname = 'www.' + u.hostname;
+        }
+        return u.href;
+      } catch {
+        return url;
+      }
     }
 
     /**

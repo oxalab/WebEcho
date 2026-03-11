@@ -47,7 +47,9 @@ export class NetworkInterceptor {
         // Create asset from response
         if (this.shouldCapture(response)) {
             const asset = await createAsset(response);
-            this.assets.set(asset.url, asset);
+            if (asset) {
+                this.assets.set(asset.url, asset);
+            }
         }
         this.onResponse?.(response);
     }

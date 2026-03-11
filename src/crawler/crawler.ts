@@ -127,8 +127,8 @@ export class Crawler {
       // Download assets FIRST so we know their local paths for rewriting
       if (this.config.captureAssets) {
         await this.downloadAssets(assets, url);
-        // Rewrite CSS files with updated assetMap (fixes font URLs)
-        await this.storage.rewriteCssFiles();
+        // Note: CSS and JS rewriting is done once after all pages are crawled
+        // This ensures all cross-references are resolved correctly
       }
 
       const page: Page = {

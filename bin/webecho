@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+# WebEcho CLI wrapper for Unix/Linux/macOS
+# Uses npx tsx to run TypeScript
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec npx tsx "$SCRIPT_DIR/../src/index.ts" "$@"

@@ -84,6 +84,15 @@ export class WebEcho {
       // Run crawl
       const result = await this.crawler.crawl(this.config.baseUrl);
 
+      // After ALL pages and assets are downloaded, do final rewrite pass
+      // This ensures cross-references between files are properly resolved
+      if (this.config.captureAssets) {
+        this.progress.assetRewriteStart();
+        await this.storage.rewriteCssFiles();
+        await this.storage.rewriteJsFiles();
+        this.progress.assetRewriteComplete();
+      }
+
       // Generate manifest
       if (this.config.generateManifest) {
         const manifest = await this.storage.generateManifest(this.config.baseUrl);

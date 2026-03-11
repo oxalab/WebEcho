@@ -8,7 +8,7 @@
 <h1 align="center">WebEcho</h1>
 
 <p align="center">
-  <i>Developer-grade website replication engine. Clone entire websites to your local machine with a single command.</i>
+  <i>Developer-grade website replication engine. Clone entire websites—not just single pages—to your local machine with a single command.</i>
 </p>
 
 <p align="center">
@@ -23,20 +23,30 @@
 
 ## Overview
 
-WebEcho is a powerful website cloning tool that downloads complete websites to your local directory. It captures HTML, CSS, JavaScript, images, fonts, and other assets while preserving the original site's link structure. Browse cloned sites offline as if you were viewing them online.
+WebEcho is a powerful **multi-page website cloning tool** that recursively crawls and downloads complete websites to your local directory. Unlike simple page downloaders, WebEcho follows links, discovers pages, and captures entire site structures—including HTML, CSS, JavaScript, images, fonts, and other assets—while preserving the original site's link structure. Browse cloned sites offline as if you were viewing them online.
 
 ### Why WebEcho?
 
+- **Multi-Page Crawling** – Automatically discovers and clones linked pages recursively
 - **Two Crawling Modes**: Browser-based for SPAs, HTTP-based for static sites
 - **Smart Asset Handling**: Automatic deduplication and organized storage
 - **URL Rewriting**: All links work locally without broken references
 - **Authentication Support**: Clone protected websites with ease
-- **Depth Control**: Control how deep to crawl
+- **Depth Control**: Control how deep to crawl (default: 3 levels deep)
 - **Progress Tracking**: Real-time feedback on cloning progress
 
 ---
 
 ## Features
+
+### Multi-Page Crawling Engine
+
+WebEcho isn't a single-page downloader—it's a **recursive website crawler** that:
+
+- Discovers all pages by following links automatically
+- Crawls to configurable depth (3 levels by default)
+- Handles both static sites and JavaScript-driven SPAs
+- Processes hundreds of pages in a single run
 
 ### Dual Crawling Modes
 
@@ -47,7 +57,9 @@ WebEcho is a powerful website cloning tool that downloads complete websites to y
 
 ### Core Capabilities
 
+- **Recursive Link Discovery** – Automatically finds and follows all links
 - **Depth-based Crawling** – Control how many levels deep to clone
+- **Page Limits** – Safety limits to prevent runaway crawls
 - **Asset Filtering** – Select specific asset types (CSS, JS, images, fonts)
 - **Concurrent Downloads** – Parallel processing for faster cloning
 - **Duplicate Detection** – SHA-256 hashing prevents duplicate downloads
@@ -91,14 +103,34 @@ npx playwright install
 
 ## Quick Start
 
+### How Multi-Page Crawling Works
+
+WebEcho starts at your target URL and **recursively follows links** to discover and clone all pages on the site. By default, it crawls **3 levels deep**:
+
+```
+example.com/              ← Level 0 (start page)
+├── about.html            ← Level 1 (linked from home)
+├── contact.html          ← Level 1
+├── products/
+│   ├── product-a.html    ← Level 2
+│   └── product-b.html    ← Level 2
+└── blog/
+    ├── post-1.html       ← Level 2
+    └── post-1.html
+        └── comments.html ← Level 3
+```
+
 ### Basic Usage
 
 ```bash
-# Clone a website (browser mode - best for SPAs)
+# Clone an entire website (browser mode - best for SPAs)
 bun run index.ts clone https://example.com
 
 # Clone to a specific directory
 bun run index.ts clone https://example.com ./my-clone
+
+# Clone with custom depth (crawl 5 levels deep)
+bun run index.ts clone https://example.com --depth 5
 
 # Clone a static site (faster HTTP mode)
 bun run index.ts http-clone https://example.com --depth 2
@@ -106,20 +138,29 @@ bun run index.ts http-clone https://example.com --depth 2
 
 ### Output Structure
 
+After crawling, you get a complete, browsable website:
+
 ```
 my-clone/
-├── index.html
-├── about.html
-├── contact.html
+├── index.html                    # Home page
+├── about.html                    # Level 1 page
+├── contact.html                  # Level 1 page
+├── products.html                 # Level 1 page
+├── products/
+│   ├── product-a.html            # Level 2 pages
+│   └── product-b.html
+├── blog.html                     # Level 1 page
 └── assets/
     ├── css/
-    │   └── a1b2c3d4...style.css
+    │   └── a1b2c3d4...style.css  # All site stylesheets
     ├── js/
-    │   └── e5f6g7h8...app.js
+    │   ├── e5f6g7h8...app.js     # All site scripts
+    │   └── i9j0k1l2...analytics.js
     ├── img/
-    │   └── i9j0k1l2...logo.png
+    │   ├── m3n4o5p6...logo.png   # All images
+    │   └── q7r8s9t0...hero.jpg
     └── fonts/
-        └── m3n4o5p6...font.woff2
+        └── u1v2w3x4...font.woff2 # All fonts
 ```
 
 ---
@@ -128,7 +169,7 @@ my-clone/
 
 ### Browser Mode (`clone`)
 
-For JavaScript-heavy sites and Single Page Applications:
+For JavaScript-heavy sites and Single Page Applications. Recursively follows all discovered links:
 
 ```bash
 bun run index.ts clone <url> [output] [options]
@@ -137,22 +178,25 @@ bun run index.ts clone <url> [output] [options]
 **Examples:**
 
 ```bash
-# Basic clone
+# Basic multi-page clone (crawls 3 levels deep by default)
 bun run index.ts clone https://example.com
 
-# With depth limit and page limit
-bun run index.ts clone https://example.com ./output --depth 2 --max-pages 50
+# Clone with custom depth and page limits
+bun run index.ts clone https://example.com ./output --depth 5 --max-pages 200
 
-# With custom timeout and wait for selector
+# Deep crawl for large sites
+bun run index.ts clone https://example.com --depth 10 --max-pages 1000 --concurrency 10
+
+# With custom timeout and wait for selector (for SPAs)
 bun run index.ts clone https://example.com --timeout 30000 --wait-for-selector ".loaded"
 
-# Headed browser (visible window)
+# Headed browser (visible window) – useful for debugging
 bun run index.ts clone https://example.com --no-headless
 ```
 
 ### HTTP Mode (`http-clone`)
 
-For static sites – faster execution:
+For static sites – faster execution with the same multi-page crawling:
 
 ```bash
 bun run index.ts http-clone <url> [output] [options]
@@ -161,25 +205,36 @@ bun run index.ts http-clone <url> [output] [options]
 **Examples:**
 
 ```bash
-# Basic HTTP clone
+# Basic multi-page HTTP clone
 bun run index.ts http-clone https://example.com
 
-# With depth and concurrency
-bun run index.ts http-clone https://example.com --depth 3 --concurrency 10
+# Deep crawl with higher concurrency for faster cloning
+bun run index.ts http-clone https://example.com --depth 5 --concurrency 20
+
+# Shallow clone (homepage + 1 level of links)
+bun run index.ts http-clone https://example.com --depth 1
 ```
 
 ---
 
 ## Configuration
 
-### Crawl Control
+### Controlling Multi-Page Crawls
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--depth <number>` | Maximum crawl depth | `3` |
-| `--max-pages <number>` | Maximum pages to download | `100` |
-| `--max-assets <number>` | Maximum assets to download | `1000` |
-| `--concurrency <number>` | Concurrent requests | `5` |
+The key to WebEcho's power is controlling **how many pages** and **how deep** to crawl:
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|---------|
+| `--depth <number>` | How many levels deep to follow links | `3` | `--depth 5` |
+| `--max-pages <number>` | Total pages to download (safety limit) | `100` | `--max-pages 500` |
+| `--max-assets <number>` | Total assets to download | `1000` | `--max-assets 5000` |
+| `--concurrency <number>` | Parallel requests (faster = more resources) | `5` | `--concurrency 10` |
+
+**Depth Examples:**
+- `--depth 0` – Only the start page
+- `--depth 1` – Start page + all directly linked pages
+- `--depth 3` – Start page + linked pages + their links + one more level (default)
+- `--depth 10` – Deep crawl for large sites
 
 ### Asset Options
 
@@ -233,12 +288,12 @@ bun run index.ts clone https://api.example.com --auth-type bearer --token "your-
 
 ## Use Cases
 
-- **Offline Browsing** – Access websites without internet connection
-- **Website Archiving** – Preserve sites for future reference
-- **Development Testing** – Clone production sites for local testing
-- **Content Migration** – Extract site content for CMS migration
-- **Documentation** – Create offline copies of documentation sites
-- **Competitor Analysis** – Study competitor site structures
+- **Offline Browsing** – Clone entire documentation sites, blogs, or wikis for offline access
+- **Website Archiving** – Preserve complete websites before they go offline or change
+- **Development Testing** – Clone production sites (multi-page) for local testing
+- **Content Migration** – Extract entire site structures for CMS migration
+- **SEO Analysis** – Crawl competitor sites to analyze their page structure
+- **Backup** – Create complete backups of your own websites
 
 ---
 

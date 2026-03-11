@@ -72,6 +72,17 @@ export function createCli(): Command {
       await handleHttpClone(url, output, options);
     });
 
+  // Serve command - start local HTTP server for cloned site
+  program
+    .command("serve")
+    .description("Start a local HTTP server to view a cloned site")
+    .argument("[directory]", "Directory to serve (default: ./clone)")
+    .option("-p, --port <number>", "Port to serve on (default: 8080)", "8080")
+    .option("-o, --open", "Open browser automatically")
+    .action(async (directory: string = "./clone", options: any) => {
+      await handleServe(directory, options);
+    });
+
   return program;
 }
 
@@ -176,4 +187,117 @@ async function handleHttpClone(url: string, output: string, options: any): Promi
     progress.error(error as Error);
     process.exit(1);
   }
+}
+
+/**
+ * Handle the serve command - start local HTTP server
+ */
+async function handleServe(directory: string, options: any): Promise<void> {
+  const port = options.port ? parseInt(options.port, 10) : 8080;
+  const openBrowser = options.open ?? false;
+
+  // Resolve directory path
+  const path = await import("node:path");
+  const { existsSync } = await import("node:fs");
+  const { resolve } = path;
+
+  const dirPath = resolve(process.cwd(), directory);
+
+  if (!existsSync(dirPath)) {
+    console.error(`Error: Directory '${directory}' does not exist`);
+    process.exit(1);
+  }
+
+  console.log("\n" + "=".repeat(50));
+  console.log("  WebEcho Local Server");
+  console.log("=".repeat(50));
+  console.log(`\n  Serving: ${dirPath}`);
+  console.log(`  Port:    ${port}`);
+  console.log(`\n  URL:     http://localhost:${port}\n`);
+  console.log("=".repeat(50));
+  console.log("\nPress Ctrl+C to stop\n");
+
+  // Create a simple HTTP server
+  const http = await import("node:http");
+  const { readFile } = await import("node:fs/promises");
+  const { extname } = path;
+
+  const mimeTypes: Record<string, string> = {
+    ".html": "text/html",
+    ".css": "text/css",
+    ".js": "application/javascript",
+    ".json": "application/json",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".ttf": "font/ttf",
+    ".eot": "application/vnd.ms-fontobject",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+  };
+
+  const server = http.createServer(async (req, res) => {
+    // Remove query string
+    const urlPath = req.url?.split("?")[0] || "/";
+
+    // Default to index.html for directory requests
+    let filePath = resolve(dirPath, urlPath.slice(1));
+
+    if (urlPath === "/" || existsSync(filePath) && (await import("node:fs")).statSync(filePath).isDirectory()) {
+      filePath = resolve(dirPath, "index.html");
+    }
+
+    try {
+      const data = await readFile(filePath);
+      const ext = extname(filePath).toLowerCase();
+      const contentType = mimeTypes[ext] || "application/octet-stream";
+
+      res.writeHead(200, {
+        "Content-Type": contentType,
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "no-store",
+      });
+      res.end(data);
+    } catch {
+      // File not found, try serving as SPA (return index.html)
+      try {
+        const indexPath = resolve(dirPath, "index.html");
+        const data = await readFile(indexPath);
+        res.writeHead(200, {
+          "Content-Type": "text/html",
+          "Access-Control-Allow-Origin": "*",
+        });
+        res.end(data);
+      } catch {
+        res.writeHead(404);
+        res.end("Not Found");
+      }
+    }
+  });
+
+  server.listen(port, async () => {
+    if (openBrowser) {
+      const { exec } = await import("node:child_process");
+      const url = `http://localhost:${port}`;
+
+      // Open browser based on platform
+      switch (process.platform) {
+        case "win32":
+          exec(`start ${url}`);
+          break;
+        case "darwin":
+          exec(`open ${url}`);
+          break;
+        default:
+          exec(`xdg-open ${url}`);
+      }
+    }
+  });
 }
